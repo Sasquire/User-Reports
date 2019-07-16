@@ -1,0 +1,25 @@
+{
+	"types": [
+		{
+			"name": "tag_updates",
+			"limit": 100, 
+			"key": "t"
+		},
+		{
+			"name": "note_updates",
+			"limit": 100, 
+			"key": "n"
+		},
+		{
+			"name": "wiki_updates",
+			"limit": 100, 
+			"key": "w"
+		},
+		{
+			"name": "post_uploads",
+			"limit": 100, 
+			"key": "p"
+		}
+	],
+	"blocked_users": []
+}
