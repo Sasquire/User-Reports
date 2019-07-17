@@ -3,12 +3,46 @@ const { JSDOM } = require('jsdom');
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('./database.db');
 const { URL } = require('url');
-const valid_types = [
-	'note_updates',
-	'tag_updates',
-	'wiki_updates',
-	'post_uploads'
-];
+const fs = require('fs');
+const options = {
+	note_updates: {
+		limit: 2
+	},
+	tag_updates: {
+		limit: 20
+	},
+	wiki_updates: {
+		limit: 2
+	},
+	post_uploads: {
+		limit: 10
+	}
+};
+const valid_types = Object.keys(options);
+
+async function database_promisify(type, script, ...fills){
+	return new Promise((resolve, reject) => {
+		db[type](script, ...fills, (err) => {
+			if(err){
+				reject(err);
+			} else {
+				resolve();
+			}
+		});
+	});
+}
+
+async function db_exec(script, ...fills){
+	return database_promisify('exec', script, ...fills);
+}
+
+async function db_run(script, ...fills){
+	return database_promisify('run', script, ...fills);
+}
+
+async function db_all(script, ...fills){
+	return database_promisify('all', script, ...fills);
+}
 
 async function request(request_options){
 	return new Promise((resolve, reject) => {
@@ -22,6 +56,36 @@ async function request(request_options){
 	});
 }
 
+async function init_db(){
+	const init_script = fs.readFileSync('./initdb.sql', 'utf8');
+	await db_exec(init_script);
+}
+
+async function insert_user(data){
+	await db_run(`
+	insert into users
+	values (?, ?)
+	on conflict do nothing`,
+	data.user_id,
+	data.username);
+}
+
+async function insert_events(data){
+	await db_run(`
+	insert into entries
+	values (?, ?, ?, ?, ?)
+	on conflict do nothing`,
+	data.user_id,
+	data.type,
+	data.date,
+	data.count,
+	data.percentage);
+}
+
+async function update_array(data){
+	await Promise.all(data.map(insert_user));
+	await Promise.all(data.map(insert_events));
+}
 
 async function download_type_raw(type){
 	const url = new URL(`https://e621.net/report/${type}`);
@@ -45,7 +109,7 @@ async function download_type(type){
 	const dom = new JSDOM(raw_text).window.document;
 	const users = find_users(dom);
 	users.forEach(e => (e.type = type));
-	users.forEach(e => (e.date = now));
+	users.forEach(e => (e.date = new Date(now).getTime()));
 	return users;
 }
 
@@ -53,14 +117,14 @@ async function download_type(type){
 function date_difference(time){
 	const now = new Date();
 	const later = new Date(now.getTime() + time);
-	return [get_date(now), get_date(later)];
+	return [e621_date(now), e621_date(later)];
+}
 
-	function get_date(date){
-		const d_year = date.getFullYear();
-		const d_month = (date.getMonth() + 1).toString().padStart(2, '0');
-		const d_day = date.getDate().toString().padStart(2, '0');
-		return `${d_year}-${d_month}-${d_day}`;
-	}
+function e621_date(date){
+	const d_year = date.getFullYear();
+	const d_month = (date.getMonth() + 1).toString().padStart(2, '0');
+	const d_day = date.getDate().toString().padStart(2, '0');
+	return `${d_year}-${d_month}-${d_day}`;
 }
 
 function find_users(dom){
@@ -77,4 +141,8 @@ function find_users(dom){
 	return users;
 }
 
-download_type('tag_updates').then(console.log);
+init_db()
+	.then(() => download_type('tag_updates'))
+	.then(update_array)
+	.then(console.log)
+	.catch(e => console.log(e));
