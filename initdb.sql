@@ -10,3 +10,7 @@ create table if not exists entries (
 	count INTEGER,
 	percentage TEXT
 );
+
+create table if not exists blacklisted_users (
+	user_id INTEGER PRIMARY KEY
+)

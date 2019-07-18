@@ -22,14 +22,18 @@ const valid_types = Object.keys(options);
 
 async function database_promisify(type, script, ...fills){
 	return new Promise((resolve, reject) => {
-		db[type](script, ...fills, (err) => {
+		db[type](script, ...fills, (err, other) => {
 			if(err){
 				reject(err);
 			} else {
-				resolve();
+				resolve(other);
 			}
 		});
 	});
+}
+
+async function db_get(script, ...fills){
+	return database_promisify('get', script, ...fills);
 }
 
 async function db_exec(script, ...fills){
@@ -87,6 +91,34 @@ async function update_array(data){
 	await Promise.all(data.map(insert_events));
 }
 
+async function suspect_users(){
+	const now = new Date(date_difference(0)[0]).getTime();
+	const date_query = `
+	select *
+	from entries
+	inner join users using(user_id)
+	where date = ?`;
+	const users_today = await db_all(date_query, now);
+	const suspect = users_today.filter(e => options[e.type].limit <= e.count);
+
+	const blacklist_query = 'select * from blacklisted_users where user_id = ?';
+	const blocked_users = (await Promise.all(
+		suspect.map(e => db_get(blacklist_query, e.user_id))
+	))
+		.filter(e => e)
+		.map(e => e.user_id);
+
+	return suspect.filter(e => !blocked_users.includes(e.user_id));
+}
+
+async function blacklist_user(id){
+	const query = `
+	insert into blacklisted_users
+	values (?)
+	on conflict do nothing`;
+	return db_run(query, id);
+}
+
 async function download_type_raw(type){
 	const url = new URL(`https://e621.net/report/${type}`);
 
@@ -142,7 +174,18 @@ function find_users(dom){
 }
 
 init_db()
+	.then(() => blacklist_user(384781))
+	.then(() => blacklist_user(416735))
+	.then(() => blacklist_user(409654))
+	.then(() => blacklist_user(396514))
+	.then(() => blacklist_user(391608))
+	.then(() => blacklist_user(384687))
+	.then(() => blacklist_user(353715))
+	.then(() => blacklist_user(346787))
+	.then(() => blacklist_user(323168))
+
 	.then(() => download_type('tag_updates'))
 	.then(update_array)
-	.then(console.log)
+	.then(suspect_users)
+	.then(a => console.log(a))
 	.catch(e => console.log(e));
