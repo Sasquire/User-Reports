@@ -11,15 +11,15 @@ const options = {
 	},
 	note_updates: {
 		limit: 2,
-		scale: 21
+		scale: 30
 	},
 	wiki_updates: {
 		limit: 2,
-		scale: 30
+		scale: 50
 	},
 	post_uploads: {
 		limit: 10,
-		scale: 9
+		scale: 10
 	},
 	risk_limit: 30
 };
@@ -177,22 +177,48 @@ function find_users(dom){
 	return users;
 }
 
-init_db()
-	.then(() => blacklist_user(384781))
-	.then(() => blacklist_user(416735))
-	.then(() => blacklist_user(409654))
-	.then(() => blacklist_user(396514))
-	.then(() => blacklist_user(391608))
-	.then(() => blacklist_user(384687))
-	.then(() => blacklist_user(353715))
-	.then(() => blacklist_user(346787))
-	.then(() => blacklist_user(323168))
+function build_dtext(users){
+	return `Here is the daily report for ${new Date()}
+	[table]
+	User Name | Risk Value | Tag Edits | Post Uploads | Wiki Edits | Note Edits
+	${users
+		.sort((a, b) => b.risk - a.risk)
+		.map(build_line)
+		.join('\n')}
+	[/table]`;
+}
 
-	.then(() => download_type('tag_updates'))
-	.then(() => download_type('note_updates'))
-	.then(() => download_type('wiki_updates'))
-	.then(() => download_type('post_uploads'))
+function build_line(user){
+	const tag_link = `https://e621.net/post_tag_history?user_id=${user.user_id}`;
+	const note_link = `https://e621.net/note/history?user_id=${user.user_id}`;
+	const wiki_link = `https://e621.net/wiki/recent_changes?user_id=${user.user_id}`;
+	const post_link = `https://e621.net/post?tags=${encodeURIComponent(`user:${user.username}`)}&a`;
+
+	const user_link = `https://e621.net/user/show/${user.user_id}`;
+
+	const _ = (a, b) => `"${a}":${b}`;
+	return [
+		_(user.username, user_link),
+		user.risk,
+		_(user.tag_updates, tag_link),
+		_(user.post_uploads, post_link),
+		_(user.wiki_updates, wiki_link),
+		_(user.note_updates, note_link)
+	].join(' | ');
+}
+
+async function download_all(){
+	const d1 = await download_type('tag_updates');
+	const d2 = await download_type('note_updates');
+	const d3 = await download_type('wiki_updates');
+	const d4 = await download_type('post_uploads');
+	return [...d1, ...d2, ...d3, ...d4];
+}
+
+init_db()
+	.then(download_all)
 	.then(update_array)
 	.then(suspect_users)
+	.then(build_dtext)
 	.then(a => console.log(a))
 	.catch(e => console.log(e));

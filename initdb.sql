@@ -4,7 +4,7 @@ create table if not exists users (
 );
 
 create table if not exists entries (
-	user_id INTEGER PRIMARY KEY,
+	user_id INTEGER,
 	type TEXT,
 	date INTEGER,
 	count INTEGER,
