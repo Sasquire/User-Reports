@@ -5,18 +5,23 @@ const db = new sqlite3.Database('./database.db');
 const { URL } = require('url');
 const fs = require('fs');
 const options = {
-	note_updates: {
-		limit: 2
-	},
 	tag_updates: {
-		limit: 20
+		limit: 20,
+		scale: 1
+	},
+	note_updates: {
+		limit: 2,
+		scale: 21
 	},
 	wiki_updates: {
-		limit: 2
+		limit: 2,
+		scale: 30
 	},
 	post_uploads: {
-		limit: 10
-	}
+		limit: 10,
+		scale: 9
+	},
+	risk_limit: 30
 };
 const valid_types = Object.keys(options);
 
@@ -93,22 +98,21 @@ async function update_array(data){
 
 async function suspect_users(){
 	const now = new Date(date_difference(0)[0]).getTime();
-	const date_query = `
-	select *
-	from entries
-	inner join users using(user_id)
-	where date = ?`;
-	const users_today = await db_all(date_query, now);
-	const suspect = users_today.filter(e => options[e.type].limit <= e.count);
+	const date_query = fs.readFileSync('./get_suspect.sql', 'utf8');
+	return db_all(
+		date_query,
+		now,
+		options.tag_updates.scale,
+		options.note_updates.scale,
+		options.wiki_updates.scale,
+		options.post_uploads.scale,
 
-	const blacklist_query = 'select * from blacklisted_users where user_id = ?';
-	const blocked_users = (await Promise.all(
-		suspect.map(e => db_get(blacklist_query, e.user_id))
-	))
-		.filter(e => e)
-		.map(e => e.user_id);
-
-	return suspect.filter(e => !blocked_users.includes(e.user_id));
+		options.tag_updates.limit,
+		options.note_updates.limit,
+		options.wiki_updates.limit,
+		options.post_uploads.limit,
+		options.risk_limit
+	);
 }
 
 async function blacklist_user(id){
@@ -185,6 +189,9 @@ init_db()
 	.then(() => blacklist_user(323168))
 
 	.then(() => download_type('tag_updates'))
+	.then(() => download_type('note_updates'))
+	.then(() => download_type('wiki_updates'))
+	.then(() => download_type('post_uploads'))
 	.then(update_array)
 	.then(suspect_users)
 	.then(a => console.log(a))
