@@ -4,6 +4,8 @@ const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('./database.db');
 const { URL } = require('url');
 const fs = require('fs');
+const secret = require('./secret.json');
+const user_agent = 'idem\'s tag edit watcher (finds bad users)';
 const options = {
 	tag_updates: {
 		limit: 20,
@@ -61,7 +63,8 @@ async function request(request_options){
 	return new Promise((resolve, reject) => {
 		raw_request(request_options, (e, h, r) => {
 			if(e || h.statusCode != 200){
-				reject(e || h.statusCode);
+				// eslint-disable-next-line prefer-promise-reject-errors, prefer-template
+				reject((e || h.statusCode) + '\n' + r);
 			} else {
 				resolve(r);
 			}
@@ -134,7 +137,7 @@ async function download_type_raw(type){
 	return request({
 		url: url.href,
 		headers: {
-			'User-Agent': 'idem\'s tag edit watcher (finds bad users)'
+			'User-Agent': user_agent
 		}
 	});
 }
@@ -155,7 +158,7 @@ async function download_pool_updates(page){
 	return request({
 		url: url.href,
 		headers: {
-			'User-Agent': 'idem\'s tag edit watcher (finds bad users)'
+			'User-Agent': user_agent
 		}
 	});
 }
@@ -234,15 +237,41 @@ function find_users(dom){
 }
 
 function build_dtext(users){
-	return `Here is the daily report for ${new Date()}
-	[table]` +
-	// eslint-disable-next-line max-len
-	`User Name | Risk Value | Tag Edits | Post Uploads | Wiki Edits | Note Edits | Pool Updates
+	const [now, week_ago] = date_difference(1000 * 3600 * 24 * 7 * -1);
+	const _ = (type, level) => `https://e621.net/report/${type}?start_date=${week_ago}&end_date=${now}&limit=29&level=${level}`;
+
+	return `
+Here is the daily report for ${new Date()}
+[table]
+	User Name | Score | Tag | Post | Wiki | Note | Pool
 	${users
 		.sort((a, b) => b.risk - a.risk)
 		.map(build_line)
+		.map(e => `\t${e}`)
 		.join('\n')}
-	[/table]`;
+[/table]
+
+[section=Activity Links]
+	[table]
+		Member Activity
+		"Member tag updates this week":${_('tag_updates', 20)}
+		"Member posts This week":${_('post_uploads', 20)}
+		"Member wiki updates this week":${_('wiki_updates', 20)}
+		"Member note updates this week":${_('note_updates', 20)}
+		
+		Privileged Activity
+		"Privileged tag updates this week":${_('tag_updates', 30)}
+		"Privileged posts This week":${_('post_uploads', 30)}
+		"Privileged wiki updates this week":${_('wiki_updates', 30)}
+		"Privileged note updates this week":${_('note_updates', 30)}
+		
+		Contributor Activity
+		"Contributor tag updates this week":${_('tag_updates', 33)}
+		"Contributor posts This week":${_('post_uploads', 33)}
+		"Contributor wiki updates this week":${_('wiki_updates', 33)}
+		"Contributor note updates this week":${_('note_updates', 33)}
+	[/table]
+[/section]`;
 }
 
 function build_line(user){
@@ -254,7 +283,8 @@ function build_line(user){
 
 	const user_link = `https://e621.net/user/show/${user.user_id}`;
 
-	const _ = (a, b) => (a == 0 ? `"${a}":${b}` : `[b] "${a}":${b} [/b]`);
+	// eslint-disable-next-line max-len
+	const _ = (a, b) => (a !== 0 && typeof a == 'number' ? `[b] "${a}":${b} [/b]` : `"${a}":${b}`);
 	return [
 		_(user.username, user_link),
 		user.risk,
@@ -275,6 +305,30 @@ async function download_all(){
 	return [...d1, ...d2, ...d3, ...d4, ...d5];
 }
 
+async function send_dmails(dtext){
+	for(const [dmail_id, username] of secret.dmail_ids){
+		await send_dmail(dmail_id, username, dtext);
+		await new Promise(resolve => setTimeout(resolve, 1000 * 150));
+	}
+}
+
+async function send_dmail(dmail_id, username, dtext){
+	await request({
+		url: 'https://e621.net/dmail/create.json',
+		headers: {
+			'User-Agent': user_agent
+		},
+		formData: {
+			'dmail[parent_id]': dmail_id,
+			'dmail[to_name]': username,
+			'dmail[title]': 'Daily user report',
+			'dmail[body]': dtext,
+			login: secret.username,
+			password_hash: secret.api_key
+		}
+	});
+}
+
 init_db()
 /* Blacklisting demo
 	.then(() => blacklist_user(396514))
@@ -286,5 +340,5 @@ init_db()
 	.then(update_array)
 	.then(suspect_users)
 	.then(build_dtext)
-	.then(a => console.log(a))
+	.then(send_dmails)
 	.catch(e => console.log(e));

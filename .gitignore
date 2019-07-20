@@ -3,3 +3,4 @@ package-lock.json
 old.js
 database.db
 old_db.db
+secret.json
