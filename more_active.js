@@ -7,21 +7,25 @@ const fs = require('fs');
 const options = {
 	tag_updates: {
 		limit: 20,
-		scale: 1
+		scale: 6
 	},
 	note_updates: {
 		limit: 2,
-		scale: 30
+		scale: 7
 	},
 	wiki_updates: {
 		limit: 2,
-		scale: 50
+		scale: 6
 	},
 	post_uploads: {
 		limit: 10,
-		scale: 10
+		scale: 1
 	},
-	risk_limit: 30
+	pool_updates: {
+		limit: 2,
+		scale: 8
+	},
+	risk_limit: 300
 };
 const valid_types = Object.keys(options);
 
@@ -106,11 +110,7 @@ async function suspect_users(){
 		options.note_updates.scale,
 		options.wiki_updates.scale,
 		options.post_uploads.scale,
-
-		options.tag_updates.limit,
-		options.note_updates.limit,
-		options.wiki_updates.limit,
-		options.post_uploads.limit,
+		options.pool_updates.scale,
 		options.risk_limit
 	);
 }
@@ -149,6 +149,62 @@ async function download_type(type){
 	return users;
 }
 
+async function download_pool_updates(page){
+	const url = new URL('https://e621.net/pool/recent_changes');
+	url.searchParams.set('page', page);
+	return request({
+		url: url.href,
+		headers: {
+			'User-Agent': 'idem\'s tag edit watcher (finds bad users)'
+		}
+	});
+}
+
+async function all_pool_updates(){
+	const now = new Date(date_difference(0)[0]).getTime();
+	const all_posts = [];
+	for(let page = 1; true; page++){
+		const raw_text = await download_pool_updates(page);
+		const dom = new JSDOM(raw_text).window.document;
+		const data = extract_pool_data(dom);
+		all_posts.push(...data.filter(e => e.date >= now));
+		if(data.some(e => e.date <= now)){
+			break;
+		}
+	}
+	return array_count(all_posts);
+}
+
+function array_count(data){
+	const now = new Date(date_difference(0)[0]).getTime();
+	const new_data = {};
+	data.forEach(e => {
+		if(new_data[e.user_id]){
+			new_data[e.user_id].count += 1;
+		} else {
+			new_data[e.user_id] = {
+				count: 1,
+				user_id: e.user_id,
+				username: e.username,
+				type: 'pool_updates',
+				date: now,
+				percentage: 'todo'
+			};
+		}
+	});
+
+	return Object.values(new_data);
+}
+
+function extract_pool_data(dom){
+	return Array.from(dom.querySelectorAll('#content tbody tr'))
+		.map(e => ({
+			username: e.children[3].textContent,
+			user_id: parseInt(e.children[3].children[0].href.match(/\d+/u)[0], 10),
+			date: new Date(e.children[4].textContent)
+		}));
+}
+
 // Between now and however many is specified
 function date_difference(time){
 	const now = new Date();
@@ -168,7 +224,7 @@ function find_users(dom){
 	const users = Array.from(dom.querySelectorAll(query))
 		.slice(0, -1) // Removes the last item
 		.map(e => ({
-			username: e.children[0].textContent,
+			username: e.children[0].textContent.replace(/_+/ug, ' '),
 			user_id: parseInt(e.children[0].children[0].href.match(/\d+/u)[0], 10),
 			count: parseInt(e.children[1].textContent, 10),
 			percentage: e.children[2].textContent
@@ -179,8 +235,9 @@ function find_users(dom){
 
 function build_dtext(users){
 	return `Here is the daily report for ${new Date()}
-	[table]
-	User Name | Risk Value | Tag Edits | Post Uploads | Wiki Edits | Note Edits
+	[table]` +
+	// eslint-disable-next-line max-len
+	`User Name | Risk Value | Tag Edits | Post Uploads | Wiki Edits | Note Edits | Pool Updates
 	${users
 		.sort((a, b) => b.risk - a.risk)
 		.map(build_line)
@@ -193,17 +250,19 @@ function build_line(user){
 	const note_link = `https://e621.net/note/history?user_id=${user.user_id}`;
 	const wiki_link = `https://e621.net/wiki/recent_changes?user_id=${user.user_id}`;
 	const post_link = `https://e621.net/post?tags=${encodeURIComponent(`user:${user.username}`)}&a`;
+	const pool_link = `https://e621.net/pool/recent_changes?user_id=${user.user_id}`;
 
 	const user_link = `https://e621.net/user/show/${user.user_id}`;
 
-	const _ = (a, b) => `"${a}":${b}`;
+	const _ = (a, b) => (a == 0 ? `"${a}":${b}` : `[b] "${a}":${b} [/b]`);
 	return [
 		_(user.username, user_link),
 		user.risk,
 		_(user.tag_updates, tag_link),
 		_(user.post_uploads, post_link),
 		_(user.wiki_updates, wiki_link),
-		_(user.note_updates, note_link)
+		_(user.note_updates, note_link),
+		_(user.pool_updates, pool_link)
 	].join(' | ');
 }
 
@@ -212,10 +271,17 @@ async function download_all(){
 	const d2 = await download_type('note_updates');
 	const d3 = await download_type('wiki_updates');
 	const d4 = await download_type('post_uploads');
-	return [...d1, ...d2, ...d3, ...d4];
+	const d5 = await all_pool_updates();
+	return [...d1, ...d2, ...d3, ...d4, ...d5];
 }
 
 init_db()
+/* Blacklisting demo
+	.then(() => blacklist_user(396514))
+	.then(() => blacklist_user(169756))
+	.then(() => blacklist_user(268624))
+	.then(() => blacklist_user(203099))
+*/
 	.then(download_all)
 	.then(update_array)
 	.then(suspect_users)

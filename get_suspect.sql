@@ -22,6 +22,11 @@ post_uploads as (
 	from today
 	where type = 'post_uploads'
 ),
+pool_updates as (
+	select user_id, count
+	from today
+	where type = 'pool_updates'
+),
 edits as (
 	select user_id from tag_edits
 	union
@@ -30,6 +35,8 @@ edits as (
 	select user_id from wiki_updates
 	union
 	select user_id from post_uploads
+	union
+	select user_id from pool_updates
 ),
 fully as (
 	select
@@ -38,26 +45,27 @@ fully as (
 		coalesce(tag_edits.count, 0) as tag_updates,
 		coalesce(note_updates.count, 0) as note_updates,
 		coalesce(wiki_updates.count, 0) as wiki_updates,
-		coalesce(post_uploads.count, 0) as post_uploads
+		coalesce(post_uploads.count, 0) as post_uploads,
+		coalesce(pool_updates.count, 0) as pool_updates
 	from edits
 	left join tag_edits using(user_id)
 	left join wiki_updates using(user_id)
 	left join note_updates using(user_id)
 	left join post_uploads using(user_id)
+	left join pool_updates using(user_id)
 	inner join users using(user_id)
+	where user_id not in blacklisted_users
 ),
 risked as (
 	select
 		*,
-		(tag_updates * ? + 1) * (note_updates * ? + 1) * (wiki_updates * ? + 1) * (post_uploads * ? + 1) as risk
+		(tag_updates * ?) +
+		(post_uploads * post_uploads * ?) +
+		(note_updates * note_updates * ?) +
+		(wiki_updates * wiki_updates * wiki_updates * ?) +
+		(pool_updates * pool_updates * ?) as risk
 	from fully
 )
 select * from risked
-where
-	(
-		tag_updates >= ?
-		or note_updates >= ?
-		or wiki_updates >= ?
-		or post_uploads >= ?
-	)
-	and risk >= ?;
+where risk >= ?;
+order by risk desc;

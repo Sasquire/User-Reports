@@ -2,3 +2,4 @@ node_modules
 package-lock.json
 old.js
 database.db
+old_db.db
