@@ -60,10 +60,10 @@ risked as (
 	select
 		*,
 		(tag_updates * ?) +
-		(post_uploads * post_uploads * ?) +
-		(note_updates * note_updates * ?) +
-		(wiki_updates * wiki_updates * wiki_updates * ?) +
-		(pool_updates * pool_updates * ?) as risk
+		(note_updates * ?) +
+		(wiki_updates * ?) +
+		(post_uploads * ?) +
+		(pool_updates * ?) as risk
 	from fully
 )
 select * from risked

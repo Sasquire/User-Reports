@@ -1,3 +1,4 @@
+require('rfc-encode-uri');
 const raw_request = require('request');
 const { JSDOM } = require('jsdom');
 const sqlite3 = require('sqlite3').verbose();
@@ -9,25 +10,25 @@ const user_agent = 'idem\'s tag edit watcher (finds bad users)';
 const options = {
 	tag_updates: {
 		limit: 20,
-		scale: 6
+		scale: 1
 	},
 	note_updates: {
 		limit: 2,
-		scale: 7
+		scale: 20
 	},
 	wiki_updates: {
 		limit: 2,
-		scale: 6
+		scale: 20
 	},
 	post_uploads: {
 		limit: 10,
-		scale: 1
+		scale: 3
 	},
 	pool_updates: {
 		limit: 2,
-		scale: 8
+		scale: 15
 	},
-	risk_limit: 300
+	risk_limit: 30
 };
 const valid_types = Object.keys(options);
 
@@ -241,15 +242,16 @@ function build_dtext(users){
 	const _ = (type, level) => `https://e621.net/report/${type}?start_date=${week_ago}&end_date=${now}&limit=29&level=${level}`;
 
 	return `
-Here is the daily report for ${new Date()}
-[table]
-	User Name | Score | Tag | Post | Wiki | Note | Pool
-	${users
-		.sort((a, b) => b.risk - a.risk)
-		.map(build_line)
-		.map(e => `\t${e}`)
-		.join('\n')}
-[/table]
+[section,expanded= Here is the daily report for ${new Date()}]
+	[table]
+		User Name | Score | Tag | Post | Wiki | Note | Pool
+		${users
+			.sort((a, b) => b.risk - a.risk)
+			.map(build_line)
+			.map(e => `\t${e}`)
+			.join('\n')}
+	[/table]
+[/section]
 
 [section=Activity Links]
 	[table]
@@ -278,7 +280,9 @@ function build_line(user){
 	const tag_link = `https://e621.net/post_tag_history?user_id=${user.user_id}`;
 	const note_link = `https://e621.net/note/history?user_id=${user.user_id}`;
 	const wiki_link = `https://e621.net/wiki/recent_changes?user_id=${user.user_id}`;
-	const post_link = `https://e621.net/post?tags=${encodeURIComponent(`user:${user.username}`)}&a`;
+	const todays_date = date_difference(0)[0];
+	const search = encodeURIComponent(`user:${user.username} date:${todays_date}`);
+	const post_link = `https://e621.net/post?tags=${search}&a`;
 	const pool_link = `https://e621.net/pool/recent_changes?user_id=${user.user_id}`;
 
 	const user_link = `https://e621.net/user/show/${user.user_id}`;
